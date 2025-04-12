@@ -1,0 +1,7 @@
+/target
+
+config.toml
+
+# editor stuff
+*.swp
+.vscode/

@@ -1,0 +1,16 @@
+[package]
+name = "mqtt-alert"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.97"
+clap = { version = "4.5.36", features = ["derive"] }
+clap-verbosity-flag = "3.0.2"
+env_logger = "0.11.8"
+log = "0.4.27"
+pushover = "0.4.0"
+rumqttc = "0.24.0"
+serde = { version = "1.0.219", features = ["derive"] }
+serde-inline-default = "0.2.3"
+toml = "0.8.20"

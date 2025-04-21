@@ -6,7 +6,7 @@ password = ''
 client_id = 'mqttalert'
 
 [monitors]
-flood_topics = ['shellies/flood-somewhere/info']
+flood_topics = ['shellies/flood-somewhere/sensor/flood']
 
 [pushover]
 user = '...'

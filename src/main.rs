@@ -1,15 +1,21 @@
-use crate::{cli::CliArgs, config::AppConfig, notify::notify_flood};
+use crate::{
+    cli::CliArgs,
+    config::{AppConfig, MQTTConfig},
+    notify::{notify_flood, notify_mail},
+};
 
 use clap::Parser;
 use log::{debug, error, info, warn};
-use rumqttc::{Client, Event::Incoming, MqttOptions, Packet::Publish, QoS};
-use std::{process::exit, thread, time::Duration};
-
+use rumqttc::{AsyncClient, Event::Incoming, EventLoop, MqttOptions, Packet::Publish, QoS};
+use serde_json::Value;
+use std::{process::exit, time::Duration};
+use tokio::{task, time};
 mod cli;
 mod config;
 mod notify;
 
-fn main() {
+#[tokio::main(flavor = "current_thread")]
+async fn main() {
     let cli = CliArgs::parse();
     env_logger::Builder::new()
         .filter_level(cli.verbosity.into())
@@ -23,42 +29,98 @@ fn main() {
         }
     };
 
-    debug!("Monitors: {monitors:?}", monitors = config.monitors);
+    debug!("Flood: {flood:?}", flood = config.flood);
+    debug!("Mailbox: {mailbox:?}", mailbox = config.mailbox);
 
+    let (local_client, local_eventloop) = make_mqtt_client(&config.mqtt.local);
+    let (ttn_client, ttn_eventloop) = make_mqtt_client(&config.mqtt.ttn);
+
+    let pushover_config_local = config.pushover.clone();
+    let local_task = task::spawn(mqtt_task(
+        "local",
+        config.flood.topics.clone(),
+        local_client,
+        local_eventloop,
+        move |topic, payload| {
+            if config.flood.matches_topic(&topic) && payload == "true" {
+                notify_flood(&pushover_config_local, &topic);
+            }
+        },
+    ));
+
+    let pushover_config_ttn = config.pushover.clone();
+    let ttn_task = task::spawn(mqtt_task(
+        "ttn",
+        config.mailbox.topics.clone(),
+        ttn_client,
+        ttn_eventloop,
+        move |topic: String, payload: String| {
+            if !config.mailbox.matches_topic(&topic) {
+                return;
+            }
+            match serde_json::from_str::<Value>(&payload) {
+                Ok(value) => {
+                    if value["uplink_message"]["decoded_payload"]["DOOR_OPEN_STATUS"] == 1 {
+                        notify_mail(&pushover_config_ttn, &topic);
+                    }
+                }
+                Err(err) => {
+                    warn!("Could not parse door sensor payload: {err:?}");
+                    return;
+                }
+            }
+        },
+    ));
+
+    // run forever since the tasks never terminate
+    let _ = tokio::join!(local_task, ttn_task);
+}
+
+fn make_mqtt_client(mqtt_config: &MQTTConfig) -> (AsyncClient, EventLoop) {
     let mut opts = MqttOptions::new(
-        config.mqtt.client_id,
-        config.mqtt.hostname,
-        config.mqtt.port,
+        &mqtt_config.client_id,
+        &mqtt_config.hostname,
+        mqtt_config.port,
     );
-    opts.set_credentials(config.mqtt.username, config.mqtt.password);
+    opts.set_credentials(&mqtt_config.username, &mqtt_config.password);
     opts.set_keep_alive(Duration::from_secs(30));
 
-    let (client, mut connection) = Client::new(opts, 10);
+    return AsyncClient::new(opts, 10);
+}
 
-    // Iterate to poll the eventloop for connection progress
-    for notification in connection.iter() {
-        match notification {
+async fn mqtt_task(
+    prefix: &str,
+    topics: Vec<String>,
+    client: AsyncClient,
+    mut eventloop: EventLoop,
+    on_publish: (impl Fn(String, String) + Sync),
+) {
+    loop {
+        let event = eventloop.poll().await;
+        match event {
             Err(err) => {
-                warn!("MQTT error: {err:?}");
-                thread::sleep(Duration::from_secs(2));
+                warn!("{prefix}: MQTT error: {err:?}");
+                time::sleep(Duration::from_secs(2)).await;
             }
             Ok(event) => match event {
                 Incoming(rumqttc::Packet::ConnAck(_)) => {
-                    info!("Connected; subscribing to monitored topics");
-                    for topic in &config.monitors.flood_topics {
+                    info!("{prefix}: Connected; subscribing to monitored topics");
+                    for topic in &topics {
                         client
                             .subscribe(topic, QoS::AtMostOnce)
+                            .await
                             .expect("Subscribe failed");
                     }
                 }
                 Incoming(Publish(msg)) => {
                     let payload = String::from_utf8_lossy(&msg.payload);
-                    debug!("MQTT publish: {topic} -> {payload}", topic = msg.topic);
-                    if config.monitors.is_flood_topic(&msg.topic) && payload == "true" {
-                        notify_flood(&config.pushover, &msg.topic);
-                    }
+                    debug!(
+                        "{prefix}: MQTT publish: {topic} -> {payload}",
+                        topic = msg.topic
+                    );
+                    on_publish(msg.topic.to_string(), payload.to_string());
                 }
-                _ => debug!("MQTT event: {event:?}"),
+                _ => debug!("{prefix}: MQTT event: {event:?}"),
             },
         }
     }

@@ -999,6 +999,8 @@ dependencies = [
  "rumqttc",
  "serde",
  "serde-inline-default",
+ "serde_json",
+ "tokio 1.45.1",
  "toml",
 ]
 

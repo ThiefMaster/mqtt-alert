@@ -22,3 +22,18 @@ pub fn notify_flood(config: &PushoverConfig, topic: &str) {
         }
     }
 }
+
+pub fn notify_mail(config: &PushoverConfig, topic: &str) {
+    info!("Notifying mail event ({topic})");
+    let api = API::new();
+    let msg = SendMessage::new(&config.token, &config.user, "Snailmail arrived");
+
+    match api.send(&msg) {
+        Ok(resp) => {
+            debug!("Notification sent: {resp:?}",)
+        }
+        Err(err) => {
+            error!("Could not send push notification: {err}");
+        }
+    }
+}

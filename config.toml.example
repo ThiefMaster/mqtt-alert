@@ -1,12 +1,22 @@
-[mqtt]
+[mqtt.local]
 hostname = '127.0.0.1'
 # port = 1883
 username = 'mqttalert'
 password = ''
 client_id = 'mqttalert'
 
-[monitors]
-flood_topics = ['shellies/flood-somewhere/sensor/flood']
+[mqtt.ttn]
+hostname = 'eu1.cloud.thethings.network'
+# port = 1883
+username = 'somebody@ttn'
+password = ''
+client_id = 'mqttalert'
+
+[flood]
+topics = ['shellies/flood-somewhere/sensor/flood']
+
+[mailbox]
+topics = ['v3/somewhere@ttn/devices/somedevice/up']
 
 [pushover]
 user = '...'

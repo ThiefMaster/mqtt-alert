@@ -16,11 +16,21 @@ pub struct MQTTConfig {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct MonitorsConfig {
-    pub flood_topics: Vec<String>,
+pub struct MQTTConfigs {
+    pub local: MQTTConfig,
+    pub ttn: MQTTConfig,
 }
 
 #[derive(Debug, Deserialize)]
+pub struct FloodConfig {
+    pub topics: Vec<String>,
+}
+#[derive(Debug, Deserialize)]
+pub struct MailboxConfig {
+    pub topics: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
 pub struct PushoverConfig {
     pub user: String,
     pub token: String,
@@ -28,8 +38,9 @@ pub struct PushoverConfig {
 
 #[derive(Debug, Deserialize)]
 pub struct AppConfig {
-    pub mqtt: MQTTConfig,
-    pub monitors: MonitorsConfig,
+    pub mqtt: MQTTConfigs,
+    pub flood: FloodConfig,
+    pub mailbox: MailboxConfig,
     pub pushover: PushoverConfig,
 }
 
@@ -47,8 +58,14 @@ impl AppConfig {
     }
 }
 
-impl MonitorsConfig {
-    pub fn is_flood_topic(&self, topic: &str) -> bool {
-        self.flood_topics.iter().any(|f| rumqttc::matches(topic, f))
+impl FloodConfig {
+    pub fn matches_topic(&self, topic: &str) -> bool {
+        self.topics.iter().any(|f| rumqttc::matches(topic, f))
+    }
+}
+
+impl MailboxConfig {
+    pub fn matches_topic(&self, topic: &str) -> bool {
+        self.topics.iter().any(|f| rumqttc::matches(topic, f))
     }
 }

@@ -17,8 +17,8 @@ pub struct MQTTConfig {
 
 #[derive(Debug, Deserialize)]
 pub struct MQTTConfigs {
-    pub local: MQTTConfig,
-    pub ttn: MQTTConfig,
+    pub local: Option<MQTTConfig>,
+    pub ttn: Option<MQTTConfig>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -39,8 +39,8 @@ pub struct PushoverConfig {
 #[derive(Debug, Deserialize)]
 pub struct AppConfig {
     pub mqtt: MQTTConfigs,
-    pub flood: FloodConfig,
-    pub mailbox: MailboxConfig,
+    pub flood: Option<FloodConfig>,
+    pub mailbox: Option<MailboxConfig>,
     pub pushover: PushoverConfig,
 }
 

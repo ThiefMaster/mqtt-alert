@@ -9,7 +9,7 @@ use log::{debug, error, info, warn};
 use rumqttc::{AsyncClient, Event::Incoming, EventLoop, MqttOptions, Packet::Publish, QoS};
 use serde_json::Value;
 use std::{process::exit, time::Duration};
-use tokio::{task, time};
+use tokio::{task::JoinSet, time};
 mod cli;
 mod config;
 mod notify;
@@ -32,48 +32,58 @@ async fn main() {
     debug!("Flood: {flood:?}", flood = config.flood);
     debug!("Mailbox: {mailbox:?}", mailbox = config.mailbox);
 
-    let (local_client, local_eventloop) = make_mqtt_client(&config.mqtt.local);
-    let (ttn_client, ttn_eventloop) = make_mqtt_client(&config.mqtt.ttn);
-
-    let pushover_config_local = config.pushover.clone();
-    let local_task = task::spawn(mqtt_task(
-        "local",
-        config.flood.topics.clone(),
-        local_client,
-        local_eventloop,
-        move |topic, payload| {
-            if config.flood.matches_topic(&topic) && payload == "true" {
-                notify_flood(&pushover_config_local, &topic);
-            }
-        },
-    ));
-
-    let pushover_config_ttn = config.pushover.clone();
-    let ttn_task = task::spawn(mqtt_task(
-        "ttn",
-        config.mailbox.topics.clone(),
-        ttn_client,
-        ttn_eventloop,
-        move |topic: String, payload: String| {
-            if !config.mailbox.matches_topic(&topic) {
-                return;
-            }
-            match serde_json::from_str::<Value>(&payload) {
-                Ok(value) => {
-                    if value["uplink_message"]["decoded_payload"]["DOOR_OPEN_STATUS"] == 1 {
-                        notify_mail(&pushover_config_ttn, &topic);
-                    }
+    let mut tasks = JoinSet::new();
+    if let Some(mqtt_local_config) = config.mqtt.local {
+        let (local_client, local_eventloop) = make_mqtt_client(&mqtt_local_config);
+        let flood_config = config
+            .flood
+            .expect("Flood config missing when local MQTT connection is configured");
+        let pushover_config_local = config.pushover.clone();
+        tasks.spawn(mqtt_task(
+            "local",
+            flood_config.topics.clone(),
+            local_client,
+            local_eventloop,
+            move |topic, payload| {
+                if flood_config.matches_topic(&topic) && payload == "true" {
+                    notify_flood(&pushover_config_local, &topic);
                 }
-                Err(err) => {
-                    warn!("Could not parse door sensor payload: {err:?}");
+            },
+        ));
+    }
+
+    if let Some(mqtt_ttn_config) = config.mqtt.ttn {
+        let (ttn_client, ttn_eventloop) = make_mqtt_client(&mqtt_ttn_config);
+        let mailbox_config = config
+            .mailbox
+            .expect("Mailbox config missing when TTN MQTT connection is configured");
+        let pushover_config_ttn = config.pushover.clone();
+        tasks.spawn(mqtt_task(
+            "ttn",
+            mailbox_config.topics.clone(),
+            ttn_client,
+            ttn_eventloop,
+            move |topic: String, payload: String| {
+                if !mailbox_config.matches_topic(&topic) {
                     return;
                 }
-            }
-        },
-    ));
+                match serde_json::from_str::<Value>(&payload) {
+                    Ok(value) => {
+                        if value["uplink_message"]["decoded_payload"]["DOOR_OPEN_STATUS"] == 1 {
+                            notify_mail(&pushover_config_ttn, &topic);
+                        }
+                    }
+                    Err(err) => {
+                        warn!("Could not parse door sensor payload: {err:?}");
+                        return;
+                    }
+                }
+            },
+        ));
+    }
 
     // run forever since the tasks never terminate
-    let _ = tokio::join!(local_task, ttn_task);
+    tasks.join_all().await;
 }
 
 fn make_mqtt_client(mqtt_config: &MQTTConfig) -> (AsyncClient, EventLoop) {

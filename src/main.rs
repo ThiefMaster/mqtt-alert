@@ -50,6 +50,7 @@ async fn main() {
             }
         };
         let pushover_config_local = config.pushover.clone();
+        let mut freemdu_finished = false;
         tasks.spawn(mqtt_task(
             "local",
             topics,
@@ -64,9 +65,13 @@ async fn main() {
                 }
                 if let Some(ref freemdu_config) = config.freemdu
                     && freemdu_config.matches_topic(&topic)
-                    && payload == "ProgramFinished"
                 {
-                    notify_freemdu(&pushover_config_local, &topic);
+                    if payload == "ProgramFinished" && !freemdu_finished {
+                        notify_freemdu(&pushover_config_local, &topic);
+                        freemdu_finished = true;
+                    } else if payload != "ProgramFinished" {
+                        freemdu_finished = false;
+                    }
                 }
             },
         ));
@@ -122,7 +127,7 @@ async fn mqtt_task(
     topics: Vec<String>,
     client: AsyncClient,
     mut eventloop: EventLoop,
-    on_publish: impl Fn(String, String) + Sync,
+    mut on_publish: impl FnMut(String, String) + Sync,
 ) {
     loop {
         let event = eventloop.poll().await;

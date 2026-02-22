@@ -26,6 +26,10 @@ pub struct FloodConfig {
     pub topics: Vec<String>,
 }
 #[derive(Debug, Deserialize)]
+pub struct FreemduConfig {
+    pub topic: String,
+}
+#[derive(Debug, Deserialize)]
 pub struct MailboxConfig {
     pub topics: Vec<String>,
 }
@@ -40,6 +44,7 @@ pub struct PushoverConfig {
 pub struct AppConfig {
     pub mqtt: MQTTConfigs,
     pub flood: Option<FloodConfig>,
+    pub freemdu: Option<FreemduConfig>,
     pub mailbox: Option<MailboxConfig>,
     pub pushover: PushoverConfig,
 }
@@ -67,5 +72,11 @@ impl FloodConfig {
 impl MailboxConfig {
     pub fn matches_topic(&self, topic: &str) -> bool {
         self.topics.iter().any(|f| rumqttc::matches(topic, f))
+    }
+}
+
+impl FreemduConfig {
+    pub fn matches_topic(&self, topic: &str) -> bool {
+        rumqttc::matches(topic, &self.topic)
     }
 }

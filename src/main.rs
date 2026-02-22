@@ -1,7 +1,7 @@
 use crate::{
     cli::CliArgs,
     config::{AppConfig, MQTTConfig},
-    notify::{notify_flood, notify_mail},
+    notify::{notify_flood, notify_freemdu, notify_mail},
 };
 
 use clap::Parser;
@@ -35,18 +35,38 @@ async fn main() {
     let mut tasks = JoinSet::new();
     if let Some(mqtt_local_config) = config.mqtt.local {
         let (local_client, local_eventloop) = make_mqtt_client(&mqtt_local_config);
-        let flood_config = config
-            .flood
-            .expect("Flood config missing when local MQTT connection is configured");
+        let topics: Vec<String> = match (config.flood.as_ref(), config.freemdu.as_ref()) {
+            (Some(flood_config), None) => flood_config.topics.clone(),
+            (None, Some(freemdu_config)) => vec![freemdu_config.topic.clone()],
+            (Some(flood_config), Some(freemdu_config)) => {
+                let mut topics = flood_config.topics.clone();
+                topics.push(freemdu_config.topic.clone());
+                topics
+            }
+            (None, None) => {
+                panic!(
+                    "Flood config + FreeMDU config missing when local MQTT connection is configured"
+                );
+            }
+        };
         let pushover_config_local = config.pushover.clone();
         tasks.spawn(mqtt_task(
             "local",
-            flood_config.topics.clone(),
+            topics,
             local_client,
             local_eventloop,
             move |topic, payload| {
-                if flood_config.matches_topic(&topic) && payload == "true" {
+                if let Some(ref flood_config) = config.flood
+                    && flood_config.matches_topic(&topic)
+                    && payload == "true"
+                {
                     notify_flood(&pushover_config_local, &topic);
+                }
+                if let Some(ref freemdu_config) = config.freemdu
+                    && freemdu_config.matches_topic(&topic)
+                    && payload == "ProgramFinished"
+                {
+                    notify_freemdu(&pushover_config_local, &topic);
                 }
             },
         ));

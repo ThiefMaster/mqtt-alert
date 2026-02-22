@@ -46,7 +46,7 @@ pub struct AppConfig {
 
 impl AppConfig {
     pub fn from_file(config_file_path: &Path) -> Result<Self> {
-        let mut f = File::open(&config_file_path).map_err(|err| {
+        let mut f = File::open(config_file_path).map_err(|err| {
             anyhow::anyhow!(
                 "Opening {path} failed: {err}",
                 path = config_file_path.display()

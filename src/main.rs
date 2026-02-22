@@ -75,7 +75,6 @@ async fn main() {
                     }
                     Err(err) => {
                         warn!("Could not parse door sensor payload: {err:?}");
-                        return;
                     }
                 }
             },
@@ -95,7 +94,7 @@ fn make_mqtt_client(mqtt_config: &MQTTConfig) -> (AsyncClient, EventLoop) {
     opts.set_credentials(&mqtt_config.username, &mqtt_config.password);
     opts.set_keep_alive(Duration::from_secs(30));
 
-    return AsyncClient::new(opts, 10);
+    AsyncClient::new(opts, 10)
 }
 
 async fn mqtt_task(
@@ -103,7 +102,7 @@ async fn mqtt_task(
     topics: Vec<String>,
     client: AsyncClient,
     mut eventloop: EventLoop,
-    on_publish: (impl Fn(String, String) + Sync),
+    on_publish: impl Fn(String, String) + Sync,
 ) {
     loop {
         let event = eventloop.poll().await;

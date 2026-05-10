@@ -18,6 +18,9 @@ topics = ['shellies/flood-somewhere/sensor/flood']
 [mailbox]
 topics = ['v3/somewhere@ttn/devices/somedevice/up']
 
+[freemdu]
+topic = 'freemdu_home/588c8153e980/operating_mode/value'
+
 [pushover]
 user = '...'
 token = '...'

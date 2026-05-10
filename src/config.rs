@@ -1,4 +1,4 @@
-use std::{fs::File, io::Read, path::Path};
+use std::{collections::HashMap, fs::File, io::Read, path::Path};
 
 use anyhow::Result;
 use serde::Deserialize;
@@ -40,12 +40,16 @@ pub struct PushoverConfig {
     pub token: String,
 }
 
+#[derive(Debug, Deserialize, Clone)]
+pub struct TemperatureConfig(HashMap<String, f64>);
+
 #[derive(Debug, Deserialize)]
 pub struct AppConfig {
     pub mqtt: MQTTConfigs,
     pub flood: Option<FloodConfig>,
     pub freemdu: Option<FreemduConfig>,
     pub mailbox: Option<MailboxConfig>,
+    pub temperature: Option<TemperatureConfig>,
     pub pushover: PushoverConfig,
 }
 
@@ -78,5 +82,19 @@ impl MailboxConfig {
 impl FreemduConfig {
     pub fn matches_topic(&self, topic: &str) -> bool {
         rumqttc::matches(topic, &self.topic)
+    }
+}
+
+impl TemperatureConfig {
+    pub fn matches_topic(&self, topic: &str) -> bool {
+        self.0.keys().any(|f| rumqttc::matches(topic, f))
+    }
+
+    pub fn topics(&self) -> Vec<String> {
+        Vec::from_iter(self.0.keys().cloned())
+    }
+
+    pub fn threshold(&self, topic: &str) -> f64 {
+        self.0[topic]
     }
 }

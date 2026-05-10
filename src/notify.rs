@@ -52,3 +52,38 @@ pub fn notify_freemdu(config: &PushoverConfig, topic: &str) {
         }
     }
 }
+
+pub fn notify_temperature(
+    config: &PushoverConfig,
+    sensor_name: &str,
+    temperature: f64,
+    exceeded: bool,
+) {
+    info!("Notifying temperature event ({sensor_name}, {temperature}, {exceeded})");
+    let api = API::new();
+    let msg = if exceeded {
+        let mut msg = SendMessage::new(
+            &config.token,
+            &config.user,
+            format!("Temperature on {sensor_name} too high: {temperature} °C"),
+        );
+        msg.set_sound(Sound::Siren);
+        msg.set_priority(Priority::High);
+        msg
+    } else {
+        SendMessage::new(
+            &config.token,
+            &config.user,
+            format!("Temperature on {sensor_name} OK again: {temperature} °C"),
+        )
+    };
+
+    match api.send(&msg) {
+        Ok(resp) => {
+            debug!("Notification sent: {resp:?}",)
+        }
+        Err(err) => {
+            error!("Could not send push notification: {err}");
+        }
+    }
+}

@@ -1,14 +1,14 @@
 use crate::{
     cli::CliArgs,
     config::{AppConfig, MQTTConfig},
-    notify::{notify_flood, notify_freemdu, notify_mail},
+    notify::{notify_flood, notify_freemdu, notify_mail, notify_temperature},
 };
 
 use clap::Parser;
 use log::{debug, error, info, warn};
 use rumqttc::{AsyncClient, Event::Incoming, EventLoop, MqttOptions, Packet::Publish, QoS};
 use serde_json::Value;
-use std::{process::exit, time::Duration};
+use std::{collections::HashSet, process::exit, time::Duration};
 use tokio::{task::JoinSet, time};
 mod cli;
 mod config;
@@ -31,6 +31,11 @@ async fn main() {
 
     debug!("Flood: {flood:?}", flood = config.flood);
     debug!("Mailbox: {mailbox:?}", mailbox = config.mailbox);
+    debug!("FreeMDU: {freemdu:?}", freemdu = config.freemdu);
+    debug!(
+        "Temperature: {temperature:?}",
+        temperature = config.temperature
+    );
 
     let mut tasks = JoinSet::new();
     if let Some(mqtt_local_config) = config.mqtt.local {
@@ -79,27 +84,76 @@ async fn main() {
 
     if let Some(mqtt_ttn_config) = config.mqtt.ttn {
         let (ttn_client, ttn_eventloop) = make_mqtt_client(&mqtt_ttn_config);
-        let mailbox_config = config
-            .mailbox
-            .expect("Mailbox config missing when TTN MQTT connection is configured");
+        let topics: Vec<String> = match (config.mailbox.as_ref(), config.temperature.as_ref()) {
+            (Some(mailbox_config), None) => mailbox_config.topics.clone(),
+            (None, Some(temperature_config)) => Vec::from_iter(temperature_config.topics()),
+            (Some(mailbox_config), Some(temperature_config)) => {
+                let mut topics = mailbox_config.topics.clone();
+                topics.extend(temperature_config.topics());
+                topics
+            }
+            (None, None) => {
+                panic!(
+                    "Mailbox config + temperature config missing when TTN MQTT connection is configured"
+                );
+            }
+        };
         let pushover_config_ttn = config.pushover.clone();
+        let mut temperatures_notified: HashSet<String> = HashSet::new();
         tasks.spawn(mqtt_task(
             "ttn",
-            mailbox_config.topics.clone(),
+            topics,
             ttn_client,
             ttn_eventloop,
             move |topic: String, payload: String| {
-                if !mailbox_config.matches_topic(&topic) {
-                    return;
-                }
-                match serde_json::from_str::<Value>(&payload) {
-                    Ok(value) => {
-                        if value["uplink_message"]["decoded_payload"]["DOOR_OPEN_STATUS"] == 1 {
-                            notify_mail(&pushover_config_ttn, &topic);
+                if let Some(ref mailbox_config) = config.mailbox
+                    && mailbox_config.matches_topic(&topic)
+                {
+                    match serde_json::from_str::<Value>(&payload) {
+                        Ok(value) => {
+                            if value["uplink_message"]["decoded_payload"]["DOOR_OPEN_STATUS"] == 1 {
+                                notify_mail(&pushover_config_ttn, &topic);
+                            }
+                        }
+                        Err(err) => {
+                            warn!("Could not parse door sensor payload: {err:?}");
                         }
                     }
-                    Err(err) => {
-                        warn!("Could not parse door sensor payload: {err:?}");
+                }
+                if let Some(ref temperature_config) = config.temperature
+                    && temperature_config.matches_topic(&topic)
+                {
+                    match serde_json::from_str::<Value>(&payload) {
+                        Ok(value) => {
+                            if let Some(temp) =
+                                value["uplink_message"]["decoded_payload"]["TempC_SHT"].as_f64()
+                            {
+                                debug!("Got temperature for {topic}: {temp}");
+                                let sensor_name = topic.rsplit('/').nth(1).unwrap_or(&topic);
+                                if temp > temperature_config.threshold(&topic) {
+                                    if !temperatures_notified.contains(&topic) {
+                                        notify_temperature(
+                                            &pushover_config_ttn,
+                                            sensor_name,
+                                            temp,
+                                            true,
+                                        );
+                                        temperatures_notified.insert(topic.clone());
+                                    }
+                                } else if temperatures_notified.contains(&topic) {
+                                    notify_temperature(
+                                        &pushover_config_ttn,
+                                        sensor_name,
+                                        temp,
+                                        false,
+                                    );
+                                    temperatures_notified.remove(&topic);
+                                }
+                            }
+                        }
+                        Err(err) => {
+                            warn!("Could not parse temperature sensor payload: {err:?}");
+                        }
                     }
                 }
             },

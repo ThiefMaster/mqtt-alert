@@ -21,6 +21,10 @@ topics = ['v3/somewhere@ttn/devices/somedevice/up']
 [freemdu]
 topic = 'freemdu_home/588c8153e980/operating_mode/value'
 
+[temperature]
+'v3/sombody@ttn/devices/fridge-temperature/up' = 5
+'v3/sombody@ttn/devices/freezer-temperature/up' = -18
+
 [pushover]
 user = '...'
 token = '...'
